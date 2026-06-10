@@ -1,57 +1,105 @@
 # dbt-semantic-mcp
 
-> DuckDB + dbt medallion marts + a governed semantic layer (MetricFlow), exposed to agents over MCP
-
-## Why
-
-Two paragraphs. The problem. Why existing options didn't fit. Read this
-**before** asking what it does.
-
-(Replace this placeholder with real "why" content. A reader should
-understand the motivation before encountering any code.)
+> A DuckDB warehouse with dbt medallion marts, a MetricFlow semantic layer, and an
+> MCP server that answers KPI queries from the governed metrics. Apache-2.0 OR MIT.
+> Status: 0.1.0.
 
 ## What
 
-One paragraph. What this actually is — a CLI, a library, a service, a
-config bundle. Concrete enough that someone can decide in 30 seconds
-whether to keep reading.
+A small warehouse stack, end to end: synthetic seed data → dbt staging/intermediate/mart
+models (39 tests) → 9 governed metrics defined once in MetricFlow YAML → a Python MCP
+server with three tools (`list_metrics`, `query_metric`, `describe_lineage`). An MCP
+host (Claude Desktop, Claude Code, or any MCP client) answers natural-language KPI
+questions by picking metrics from the catalog; every number comes from the same governed
+definitions an analyst would query. No SQL is composed from model or user input.
 
-## Quickstart
+## Why
+
+A small warehouse stack — dbt medallion marts + a governed semantic layer — made legible
+to agents over MCP: one set of metrics for people and LLMs alike.
+
+## Run
+
+Requires [uv](https://docs.astral.sh/uv/). Python 3.12 and all packages are pinned by
+the lockfile.
 
 ```sh
-git clone <url> dbt-semantic-mcp && cd dbt-semantic-mcp
-just            # see all recipes
-just check      # fmt + lint + test
+git clone https://github.com/in-loop/dbt-semantic-mcp && cd dbt-semantic-mcp
+uv sync --all-extras
+cd warehouse
+uv run dbt build          # seeds + 11 models + 39 tests
+uv run mf query --metrics revenue,order_count --group-by metric_time__year --decimals 0
+cd ..
+uv run pytest             # 8 tests, incl. an MCP stdio round-trip
 ```
 
-## Usage
+`dbt build` output ends `PASS=55 WARN=0 ERROR=0`. The `mf query` returns:
 
-(Real usage examples go here. For libraries: a minimal "hello-world"
-import-and-call snippet. For CLIs: the most useful subcommand. For
-services: how to run it locally.)
+```
+metric_time__year      revenue    order_count
+-------------------  ---------  -------------
+2024-01-01T00:00:00    1198339            706
+2025-01-01T00:00:00    3304658           1953
+```
+
+Register the MCP server with a host (stdio transport):
+
+```json
+{
+  "mcpServers": {
+    "dbt-semantic-mcp": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/dbt-semantic-mcp", "dbt-semantic-mcp"]
+    }
+  }
+}
+```
+
+Example exchange: ask the host *"what was revenue by region last year?"* — it calls
+`list_metrics`, finds `revenue` with group-by `customer__region`, then calls
+`query_metric(metrics=["revenue"], group_by=["customer__region"], start_time="2025-01-01",
+end_time="2025-12-31")` and reads back four rows. `describe_lineage("revenue")` answers
+"where does this number come from": `fct_order_items ← int_order_items_pricing ←
+stg_order_items/stg_orders/stg_products ← seeds`.
+
+### The metrics
+
+revenue, units_sold, gross_profit, order_count, average_order_value (ratio),
+new_customers, on_time_shipments, shipped_orders, on_time_shipment_rate (ratio).
+Definitions in `warehouse/models/semantic/metrics.yml`; the business rules (revenue
+counts completed orders only; a new customer is a first non-cancelled order) live in
+the YAML and the mart SQL, not in the server.
+
+## Layout
+
+- `scripts/generate_seed.py` — deterministic synthetic data (RNG seed 42); the committed
+  CSVs are its output, verified by a test.
+- `warehouse/` — dbt project: staging views → `int_order_items_pricing` → marts
+  (`fct_orders`, `fct_order_items`, `dim_customers`, `dim_products`) + semantic YAML.
+- `src/dbt_semantic_mcp/` — the MCP server. Queries shell out to the `mf` CLI; lineage
+  parses `target/manifest.json`.
+- `tests/` — generator reproducibility, metric-vs-direct-SQL cross-check, lineage,
+  stdio round-trip with a real MCP client.
+
+## Limits
+
+- Seed data, not production scale: 4,000 synthetic orders in one DuckDB file. The dbt
+  patterns transfer; the operational concerns of a cloud warehouse (Snowflake/BigQuery),
+  orchestration (Airflow), and Spark-scale pipelines are scoped here, not built.
+- The metric set is the demo set (9 metrics, one domain). Adding a metric is YAML + a
+  re-parse, not server code.
+- `query_metric` exposes metrics, group-bys, time bounds, ordering, and a row limit —
+  not MetricFlow's `--where` filter syntax.
+- The group-by list in `list_metrics` is a one-hop join approximation; `mf query` is the
+  authority and returns valid candidates on a miss.
+- Server transport is stdio only.
 
 ## Development
 
 ```sh
 pre-commit install   # one-time after clone
-just                 # list recipes
-just check           # the merge gate
+just check           # fmt + lint + test
 ```
-
-See `CLAUDE.md` for engineering conventions; `docs/adr/` for design
-decisions; `CONTRIBUTING.md` (Tier 2 only) for contribution guidelines.
-
-## License
-
-(License footer — `/new-project` substitutes the appropriate snippet
-based on `apache-mit-dual`. For dual Apache-2.0 OR MIT, see
-`licenses/README-license-snippet.md`.)
-<!--
-  Drop this snippet into the project README under a `## License` heading
-  when the project is dual-licensed Apache-2.0 OR MIT (Decision 1).
-  The `/new-project` skill copies this in automatically when
-  --license=apache-mit-dual (the default).
--->
 
 ## License
 
