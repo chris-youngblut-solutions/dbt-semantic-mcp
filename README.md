@@ -16,7 +16,9 @@ definitions an analyst would query. No SQL is composed from model or user input.
 ## Why
 
 A small warehouse stack — dbt medallion marts + a governed semantic layer — made legible
-to agents over MCP: one set of metrics for people and LLMs alike.
+to agents over MCP: one set of metrics for people and LLMs alike. When each consumer
+(dashboard, REST endpoint, LLM) re-implements metric SQL, the numbers drift; here the
+analyst CLI and the agent read the same YAML definition.
 
 ## Run
 
@@ -86,8 +88,10 @@ the YAML and the mart SQL, not in the server.
 - Seed data, not production scale: 4,000 synthetic orders in one DuckDB file. The dbt
   patterns transfer; the operational concerns of a cloud warehouse (Snowflake/BigQuery),
   orchestration (Airflow), and Spark-scale pipelines are scoped here, not built.
-- The metric set is the demo set (9 metrics, one domain). Adding a metric is YAML + a
-  re-parse, not server code.
+- The metric set is the demo set (9 metrics, one domain). Adding a metric is YAML, not
+  server code: add a measure/metric in `warehouse/models/semantic/`, then
+  `uv run dbt parse && uv run mf validate-configs` — the server picks it up from the
+  regenerated manifest.
 - `query_metric` exposes metrics, group-bys, time bounds, ordering, and a row limit —
   not MetricFlow's `--where` filter syntax.
 - The group-by list in `list_metrics` is a one-hop join approximation; `mf query` is the
