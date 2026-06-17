@@ -13,7 +13,7 @@ vulnerabilities.
 Use GitHub's private vulnerability reporting feature instead:
 **[Report a vulnerability](https://github.com/in-loop/dbt-semantic-mcp/security/advisories/new)**.
 
-Alternatively, email the maintainer directly: ctyoungb@gmail.com. PGP
+Alternatively, email the maintainer directly: christopheryoungblut@gmail.com. PGP
 key on request.
 
 We'll acknowledge receipt within **3 business days** and aim to publish
