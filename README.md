@@ -18,7 +18,7 @@ Requires [uv](https://docs.astral.sh/uv/). Python 3.12 and all packages are pinn
 the lockfile.
 
 ```sh
-git clone https://github.com/in-loop/dbt-semantic-mcp && cd dbt-semantic-mcp
+git clone https://github.com/chris-youngblut-solutions/dbt-semantic-mcp && cd dbt-semantic-mcp
 uv sync --all-extras
 cd warehouse
 uv run dbt build          # seeds + 11 models + 39 tests
