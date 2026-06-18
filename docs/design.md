@@ -1,5 +1,7 @@
 # Design
 
+Architecture, pinned versions, and design decisions for the dbt + MetricFlow + MCP warehouse stack.
+
 ## Architecture
 
 ```
@@ -23,8 +25,8 @@ src/dbt_semantic_mcp/  (MCP server, stdio)
 
 The natural-language half of an NL KPI query belongs to the MCP host: the host reads
 the metric catalog (names, descriptions, group-bys) and picks the call. The server only
-executes governed definitions. The division means a hallucinated metric name fails
-loudly (`mf` error, with valid candidates) instead of silently querying wrong SQL.
+executes governed definitions. A hallucinated metric name fails with an `mf` error that
+lists valid candidates, rather than querying wrong SQL.
 
 ## Pinned versions (resolved 2026-06-09, locked in uv.lock)
 
@@ -59,7 +61,7 @@ loudly (`mf` error, with valid candidates) instead of silently querying wrong SQ
   the freeform-input surface this design avoids. Time bounds, group-bys, ordering, and
   limits cover the demo questions.
 
-## Honesty boundary
+## Scope
 
 Built and tested here: dbt modeling and tests, a MetricFlow semantic layer, an MCP
 server, CI running the whole chain. Scoped but not built: cloud warehouses
