@@ -41,6 +41,16 @@ def _semantic_manifest(wh: Path) -> dict[str, Any]:
     return _load_json(wh / "target" / "semantic_manifest.json", "dbt parse")
 
 
+def semantic_manifest() -> dict[str, Any]:
+    """The governed semantic manifest for the active warehouse.
+
+    Public accessor so other query paths (e.g. the Ibis connector) can read the
+    same governed metric/measure definitions the MetricFlow path reads, instead
+    of composing SQL from input.
+    """
+    return _semantic_manifest(warehouse_dir())
+
+
 def _dbt_manifest(wh: Path) -> dict[str, Any]:
     return _load_json(wh / "target" / "manifest.json", "dbt build")
 

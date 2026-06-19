@@ -6,7 +6,10 @@ An MCP server that answers KPI queries from governed MetricFlow metrics over a D
 
 A small warehouse stack, end to end: synthetic seed data → dbt staging/intermediate/mart
 models (39 tests) → 9 governed metrics defined once in MetricFlow YAML → a Python MCP
-server with three tools (`list_metrics`, `query_metric`, `describe_lineage`). An MCP
+server (`list_metrics`, `query_metric`, `query_metric_via_backend`, `active_backend`,
+`describe_lineage`). Metrics answer two ways: through MetricFlow, or through an Ibis
+connector over a swappable SQL backend (DuckDB local by default; Postgres / Snowflake /
+BigQuery when configured) — see [Multi-backend](#multi-backend-ibis). An MCP
 host (Claude Desktop, Claude Code, or any MCP client) answers natural-language KPI
 questions by picking metrics from the catalog; every number comes from the same governed
 definitions an analyst would query. No SQL is composed from model or user input. The
@@ -64,28 +67,68 @@ Definitions in `warehouse/models/semantic/metrics.yml`; the business rules (reve
 counts completed orders only; a new customer is a first non-cancelled order) live in
 the YAML and the mart SQL, not in the server.
 
+## Multi-backend (Ibis)
+
+The server exposes a second query path, `query_metric_via_backend`, that answers the
+same governed-metric questions through [Ibis](https://ibis-project.org/) instead of the
+`mf` CLI. The point is one MCP interface over a swappable SQL engine:
+
+- **DuckDB (default, local)** — the degrades-to-local fallback. No network, no
+  credentials; reads the dbt-built `warehouse.duckdb`.
+- **Postgres / Snowflake / BigQuery (hosted)** — same tool, same inputs, same row shape.
+  Selected with `DBT_SEMANTIC_MCP_BACKEND`; the agent never learns which tier answered.
+
+The aggregations are derived from the **governed semantic manifest** (the same
+`semantic_manifest.json` the MetricFlow path reads), not composed from input — swapping
+the backend changes *where* a metric runs, not *what it means*. `query_metric_via_backend`
+and `query_metric` return identical numbers for the same metric (a test asserts this on
+DuckDB). `active_backend` reports the configured tier.
+
+Credentials are read from the environment / `~/.netrc` / ADC by each Ibis backend and are
+never passed as arguments or baked into code:
+
+```sh
+# default — local DuckDB, no creds
+uv run dbt-semantic-mcp
+
+# hosted Postgres (password from ~/.pgpass / PG* env, not argv)
+DBT_SEMANTIC_MCP_BACKEND=postgres PGHOST=… PGDATABASE=analytics uv run dbt-semantic-mcp
+```
+
+The single-table Ibis path handles the simple/same-mart ratio metrics and local /
+time group-bys; cross-mart ratios (e.g. `average_order_value`) and cross-entity
+group-bys (e.g. `customer__region`) stay on the MetricFlow path, which remains the
+authority and is rejected with a clear message rather than guessed.
+
 ## How it works
 
 - `scripts/generate_seed.py` — deterministic synthetic data (RNG seed 42); the committed
   CSVs are its output, verified by a test.
 - `warehouse/` — dbt project: staging views → `int_order_items_pricing` → marts
   (`fct_orders`, `fct_order_items`, `dim_customers`, `dim_products`) + semantic YAML.
-- `src/dbt_semantic_mcp/` — the MCP server. Queries shell out to the `mf` CLI; lineage
-  parses `target/manifest.json`.
+- `src/dbt_semantic_mcp/` — the MCP server. `query_metric` shells out to the `mf` CLI;
+  `query_metric_via_backend` composes the query with Ibis over the configured backend
+  (`connector.py`); lineage parses `target/manifest.json`.
 - `tests/` — generator reproducibility, metric-vs-direct-SQL cross-check, lineage,
   stdio round-trip with a real MCP client.
 
 ## Status
 
 0.1.0 (SemVer). Shipped: the full pipeline — seeds, 11 dbt models with 39 tests, 9
-MetricFlow metrics, and the MCP server with `list_metrics`, `query_metric`, and
-`describe_lineage` over stdio; 8 pytest tests including an MCP stdio round-trip.
+MetricFlow metrics, and the MCP server with `list_metrics`, `query_metric`,
+`query_metric_via_backend`, `active_backend`, and `describe_lineage` over stdio; pytest
+suite including MCP stdio round-trips for both query paths and a backend-swap equivalence
+check.
 
 Boundaries:
 
 - Seed data, not production scale: 4,000 synthetic orders in one DuckDB file. The dbt
-  patterns transfer; the operational concerns of a cloud warehouse (Snowflake/BigQuery),
-  orchestration (Airflow), and Spark-scale pipelines are scoped here, not built.
+  patterns transfer; orchestration (Airflow) and Spark-scale pipelines are scoped here,
+  not built.
+- The Ibis multi-backend path is wired and tested against local DuckDB (and a simulated
+  hosted DuckDB for the swap-equivalence test). The Postgres / Snowflake / BigQuery
+  factories read credentials from the environment and are covered by mocked tests; they
+  have not been run against live hosted warehouses here.
 - The metric set is the demo set (9 metrics, one domain). Adding a metric is YAML, not
   server code: add a measure/metric in `warehouse/models/semantic/`, then
   `uv run dbt parse && uv run mf validate-configs` — the server picks it up from the

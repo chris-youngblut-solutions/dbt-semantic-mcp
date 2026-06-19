@@ -1,9 +1,17 @@
 """MCP server exposing the governed semantic layer over stdio.
 
-Three tools: list_metrics, query_metric, describe_lineage. The natural-language
-half of an NL KPI query is the MCP host's job — the host picks metrics and
-group-bys from the catalog the tools return; the server only answers from the
-governed definitions.
+Tools: list_metrics, query_metric, query_metric_via_backend, active_backend,
+describe_lineage. The natural-language half of an NL KPI query is the MCP host's
+job — the host picks metrics and group-bys from the catalog the tools return;
+the server only answers from the governed definitions.
+
+Two query paths answer the *same* governed questions:
+
+- ``query_metric`` — MetricFlow (the ``mf`` CLI) over the local dbt project.
+- ``query_metric_via_backend`` — Ibis over a configurable SQL backend
+  (DuckDB local by default; Postgres / Snowflake / BigQuery when configured).
+  This is the connector seam: the agent calls one tool and never learns which
+  tier answered. Swap the backend, keep the interface; degrades to local DuckDB.
 
 Run: uv run dbt-semantic-mcp
 """
@@ -14,7 +22,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from dbt_semantic_mcp import warehouse
+from dbt_semantic_mcp import connector, warehouse
 
 mcp = FastMCP("dbt-semantic-mcp")
 
@@ -56,6 +64,44 @@ def query_metric(
         order_by=order_by,
         limit=limit,
     )
+
+
+@mcp.tool()
+def query_metric_via_backend(
+    metrics: list[str],
+    group_by: list[str] | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    order_by: list[str] | None = None,
+    limit: int | None = None,
+) -> list[dict[str, str]]:
+    """Query governed metrics through the configurable SQL backend (Ibis).
+
+    Same metric/group-by inputs and same row shape as ``query_metric`` — the
+    difference is the engine. The backend is selected by the server's
+    ``DBT_SEMANTIC_MCP_BACKEND`` env (default ``duckdb``, the local OSS
+    fallback; ``postgres`` / ``snowflake`` / ``bigquery`` for hosted tiers).
+    Credentials are read from the environment by the backend, never passed
+    here. The metric definitions are still the governed semantic manifest, so
+    swapping the backend does not change what a metric means — only where it
+    runs. Use this when the warehouse lives in a hosted engine rather than the
+    local DuckDB file."""
+    return connector.query_metric_ibis(
+        metrics=metrics,
+        group_by=group_by,
+        start_time=start_time,
+        end_time=end_time,
+        order_by=order_by,
+        limit=limit,
+    )
+
+
+@mcp.tool()
+def active_backend() -> dict[str, str]:
+    """The SQL backend tier the ``query_metric_via_backend`` tool will use
+    (``duckdb`` local, or a configured hosted engine). Lets a host confirm which
+    tier is wired without leaking credentials."""
+    return {"backend": connector.backend_name()}
 
 
 @mcp.tool()
