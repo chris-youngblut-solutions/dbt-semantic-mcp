@@ -13,7 +13,7 @@ dependencies = [
     "dbt-duckdb>=1.10.1",
     "dbt-metricflow[duckdb]>=0.13.0",
     "ibis-framework[duckdb]>=11,<12",
-    "mcp>=1.27.2",
+    "mcp>=1.28.1",
 ]
 
 [project.optional-dependencies]
